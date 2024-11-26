@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <TheForgeRoot>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)..\..\..\"))</TheForgeRoot>
+    <TheForgeArtDir>$([System.IO.Path]::GetFullPath("$(SolutionDir)\The-Forge\Art\"))</TheForgeArtDir>
+    <CustomMiddlewareRoot>$([System.IO.Path]::GetFullPath("$(SolutionDir)\The-Forge\..\Custom-Middleware\"))</CustomMiddlewareRoot>
+    <UsingMSVC>false</UsingMSVC>
+    <UsingMSVC Condition="'$(Platform)'=='x64'">true</UsingMSVC>
+    <UsingMSVC Condition="'$(Platform)'=='Gaming.Xbox.XboxOne.x64'">true</UsingMSVC>
+    <UsingMSVC Condition="'$(Platform)'=='Gaming.Xbox.Scarlett.x64'">true</UsingMSVC>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <ConformanceMode>true</ConformanceMode>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+      <ExceptionHandling>false</ExceptionHandling>
+      <PreprocessorDefinitions>_HAS_EXCEPTIONS=0;$(AdditionalForgeDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DebugInformationFormat>OldStyle</DebugInformationFormat>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <ForcedIncludeFiles>%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <WarningsAsErrors>true</WarningsAsErrors>
+      <WarningLevel Condition="!$(UsingMSVC)">EnableWarnings</WarningLevel>
+      <WarningLevel Condition="$(UsingMSVC)">Level4</WarningLevel>
+      <DisableSpecificWarnings Condition="$(UsingMSVC)">4201;4324;4127%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Platform)' == 'x64'">
+    <ClCompile>
+      <!-- When updating the sdk, you should only need to change the values in this file, and to copy the DLLs in the game/pc/D3D12 directory -->
+      <!-- General -->
+      <PreprocessorDefinitions>
+        D3D12_AGILITY_SDK=1;
+        D3D12_AGILITY_SDK_VERSION=715;
+        %(PreprocessorDefinitions)
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Condition="$(ProjectDir.Contains('Quest_VisualStudio2019'))" Project="$(SolutionDir)\The-Forge\Examples_3\Build_Props\VS\Quest.arm64.v8a.props" />
+    <Import Condition="$(ProjectDir.Contains('Android_VisualStudio2019'))" Project="$(SolutionDir)\The-Forge\Examples_3\Build_Props\VS\Android.arm64.v8a.props" />
+    <Import Condition="$(ProjectDir.Contains('PS4 Visual Studio 2019'))" Project="$(SolutionDir)\The-Forge\PS4\VSProps\PS4.props" />
+    <Import Condition="$(ProjectDir.Contains('Prospero Visual Studio 2019'))" Project="$(SolutionDir)\The-Forge\Prospero\VSProps\Prospero.props" />
+    <Import Condition="$(ProjectDir.Contains('NX'))" Project="$(SolutionDir)\The-Forge\Switch\Examples_3\Unit_Tests\NX Visual Studio 2019\ImportNintendoSdk.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" />
+  <ItemDefinitionGroup Condition="'$(ConfigurationType)' == 'Application'">
+    <PostBuildEvent>
+      <Command>
+        xcopy "$(SolutionDir)\The-Forge\Common_3\Graphics\ThirdParty\OpenSource\VulkanSDK\bin\Win32\*.dll" "$(OutDir)" /S /Y /D
+        xcopy "$(SolutionDir)\The-Forge\Common_3\Graphics\ThirdParty\OpenSource\VulkanSDK\bin\Win32\*.json" "$(OutDir)" /S /Y /D
+        xcopy "$(SolutionDir)\The-Forge\Common_3\Graphics\ThirdParty\OpenSource\ags\ags_lib\lib\amd_ags_x64.dll" "$(OutDir)amd_ags_x64.dll"* /S /Y /D
+        xcopy "$(SolutionDir)\The-Forge\Common_3\Graphics\ThirdParty\OpenSource\DirectXShaderCompiler\bin\x64\dxcompiler.dll" "$(OutDir)dxcompiler.dll"* /S /Y /D
+        xcopy "$(SolutionDir)\The-Forge\Common_3\Graphics\ThirdParty\OpenSource\Direct3d12Agility\bin\x64\*.dll" "$(OutDir)"* /S /Y /D
+        xcopy "$(SolutionDir)\The-Forge\Common_3\Graphics\ThirdParty\OpenSource\winpixeventruntime\bin\WinPixEventRuntime.dll" "$(OutDir)WinPixEventRunTime.dll"* /S /Y /D
+        xcopy /Y /D "$(SolutionDir)PathStatement.txt" "$(OutDir)PathStatement.txt*"
+        xcopy /Y /D "$(TheForgeArtDir)GPUCfg\$(ProjectName)\gpu.cfg" "$(OutDir)"
+
+        mkdir "$(OutDir)PipelineCaches\"
+        mkdir "$(OutDir)Screenshots\"
+        mkdir "$(OutDir)Debug\"
+
+        xcopy "$(SolutionDir)\The-Forge\Common_3\OS\Windows\pc_gpu.data" "$(OutDir)gpu.data*" /Y /D
+        
+        if not exist "$(OutDir)Fonts\"  mkdir "$(OutDir)Fonts\"
+        xcopy /Y /S /D "$(SolutionDir)Fonts\*" "$(OutDir)Fonts\"
+        xcopy /Y /S /D "$(SolutionDir)Models\*" "$(OutDir)Models\"
+        xcopy /Y /S /D "$(SolutionDir)Textures\*" "$(OutDir)Textures\"
+
+        cd "$(SolutionDir)\The-Forge\"
+        powershell start-process "$(SolutionDir)The-Forge\Common_3\Tools\ReloadServer\ReloadServer.bat" -WindowStyle Hidden
+      </Command>
+    </PostBuildEvent>
+    <PreLinkEvent>
+      <Command>
+        if exist "$(OutDir)..\OS\Shaders\" xcopy /Y /S /D "$(OutDir)..\OS\Shaders\*" "$(OutDir)Shaders\"
+        if exist "$(OutDir)..\OS\CompiledShaders\" xcopy /Y /S /D "$(OutDir)..\OS\CompiledShaders\*" "$(OutDir)CompiledShaders\"
+      </Command>
+    </PreLinkEvent>
+  </ItemDefinitionGroup>
+</Project>

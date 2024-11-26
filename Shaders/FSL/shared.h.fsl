@@ -1,0 +1,179 @@
+
+// Shared stuff for grass & terrain shaders
+
+#define PI 3.1415926
+#define TAU (PI*2)
+
+#define HEIGHT_MAP_SAMPLE_FOR_HEIGHT_PERCENT 0.15
+
+STRUCT(SceneData) {
+	DATA(float4x4, CameraToClip, None); // #Portability this won't work on multi-viewport (VR)
+	DATA(float3, SunDirection, None);
+	DATA(float2, TerrainSize, None);
+	DATA(float, DaylightFactor, None);
+	DATA(float, MaxFloorY, None);
+	
+	DATA(float, Time, None);
+	DATA(float, WindStrength, None);
+	DATA(float, MaxWindLeanAngle, None);
+	DATA(float, WindSpeed, None);
+	
+	DATA(float, MaxNaturalAngle, None);
+	
+	DATA(float, MinGrassWidth, None);
+	DATA(float, MaxGrassWidth, None);
+	DATA(float, MinGrassHeight, None);
+	DATA(float, MaxGrassHeight, None);
+	
+	DATA(uint, MaxInstancesPerTile, None);
+	DATA(float, SampleGranularity, None);
+	DATA(float, Pad3, None);
+	
+	DATA(float3, ViewDir, None);
+	
+	DATA(float3, CameraPos, None);
+	
+	DATA(float3, GrassBaseColor, None);
+	DATA(float3, GrassTipColor, None);
+	DATA(float3, WindDir, None);
+};
+RES(CBUFFER(SceneData), scene, UPDATE_FREQ_PER_FRAME, b0, binding = 0);
+
+RES(Tex2D(float4), HeightMap, UPDATE_FREQ_NONE, t0, binding = 4);
+RES(SamplerState, Sampler, UPDATE_FREQ_NONE, s0, binding = 5);
+
+float4 sampleHeight(float3 position, float percentOfWidth, float percentOfHeight) {
+	float u = frac((position.x/scene.TerrainSize.x)*percentOfWidth);
+	float v = frac((position.z/scene.TerrainSize.y)*percentOfHeight);
+	uint2 heightMapSize = GetDimensions(HeightMap, 0);
+	
+	float x = u*float(heightMapSize.x);
+	float y = v*float(heightMapSize.y);
+	
+	uint xFloored = (uint)floor(x);
+	uint xCeiled  = (uint)ceil(x);
+	uint yFloored = (uint)floor(y);
+	uint yCeiled  = (uint)ceil(y);
+	
+	// Interpolate between samples depending on fractional part
+	float4 BL = LoadTex2D(HeightMap, Sampler, uint2(xFloored, yFloored), 0);
+	float4 TL = LoadTex2D(HeightMap, Sampler, uint2(xFloored, yCeiled), 0);
+	float4 TR = LoadTex2D(HeightMap, Sampler, uint2(xCeiled, yCeiled), 0);
+	float4 BR = LoadTex2D(HeightMap, Sampler, uint2(xCeiled, yFloored), 0);
+	
+	// Bilinear interp
+	float4 topRow = lerp(TL, TR, frac(x));
+    float4 botRow = lerp(BL, BR, frac(x));
+    float4 final = lerp(botRow, topRow, frac(y));
+
+    return final;
+}
+
+
+float4x4 createRotationMatrixAxisAngle(float3 axis, float angle) {
+    float cosA = cos(angle);
+    float sinA = sin(angle);
+    float oneMinusCosA = 1.0 - cosA;
+
+    // Components of the axis
+    float x = axis.x;
+    float y = axis.y;
+    float z = axis.z;
+
+    return float4x4(
+        cosA + x * x * oneMinusCosA, x * y * oneMinusCosA - z * sinA, x * z * oneMinusCosA + y * sinA, 0,
+        y * x * oneMinusCosA + z * sinA, cosA + y * y * oneMinusCosA, y * z * oneMinusCosA - x * sinA, 0,
+        z * x * oneMinusCosA - y * sinA, z * y * oneMinusCosA + x * sinA, cosA + z * z * oneMinusCosA, 0,
+        0, 0, 0, 1
+    );
+}
+float4x4 createRotationMatrixZ(float angle)
+{
+    float s = sin(angle);
+    float c = cos(angle);
+    return float4x4(
+        c, 0, -s, 0,
+        0, 1,  0, 0,
+        s, 0,  c, 0,
+        0, 0,  0, 1
+    );
+}
+float4x4 createRotationMatrixY(float angle)
+{
+    float s = sin(angle);
+    float c = cos(angle);
+    return float4x4(
+        c,  0, s, 0,  
+        0,  1, 0, 0, 
+        -s, 0, c, 0,
+        0,  0, 0, 1  
+    );
+}
+float4x4 createRotationMatrixX(float angle)
+{
+    float s = sin(angle);
+    float c = cos(angle);
+    return float4x4(
+        1, 0,  0, 0,
+        0, c, -s, 0,
+        0, s,  c, 0,
+        0, 0,  0, 1
+    );
+}
+
+float4x4 createScaleMatrix(float w, float h)
+{
+    return float4x4(
+        w, 0, 0, 0,
+        0, h, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    );
+}
+
+
+// From ShaderUtilities.h.fsl
+float2 unpackUnorm2x16(uint p)
+{
+	float2 ret;
+	ret.x = saturate((0x0000FFFF & p) / 65535.0);
+	ret.y = saturate(((0xFFFF0000 & p) >> 16) / 65535.0);
+	return ret;
+}
+inline float2 octWrap_float2(float2 v)
+{
+    return (float2(1.f, 1.f) - float2(abs(v.y), abs(v.x))) * float2(v.x >= 0.f ? 1.f : -1.f, v.y >= 0.f ? 1.f : -1.f);
+}
+inline float3 decodeDir(float2 encN)
+{
+    encN = encN * 2.0f - float2(1.0f, 1.f);
+
+    float3 n;
+    n.z = 1.0f - abs(encN.x) - abs(encN.y);
+#if defined(FSL_SHADER_LIB)
+    n.xy = n.z >= 0.0f ? encN.xy : octWrap_float2(encN.xy);
+    n = normalize(n);
+#else
+    if (n.z >= 0.0f)
+    {
+        n.x = encN.x;
+        n.y = encN.y;
+    }
+    else
+    {
+        float2 wrap = octWrap_float2(float2(encN.x, encN.y));
+        n.x = wrap.x;
+        n.y = wrap.y;
+    }
+    n /= sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+#endif
+    return n;
+}
+
+
+float easeOut(float t) {
+	return 1 - pow(1 - t, 3);
+}
+float easeIn(float t) {
+	return t*t;
+}

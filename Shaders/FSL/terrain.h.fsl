@@ -1,0 +1,7 @@
+
+STRUCT(VSOutput)
+{
+    DATA(float4, Position, SV_Position);
+    DATA(float4, Color, COLOR);
+    DATA(float3, Normal, NORMAL); // Unused for now.
+};

@@ -1,0 +1,79 @@
+#include "terrain.h.fsl"
+#include "shared.h.fsl"
+
+
+
+VSOutput VS_MAIN(SV_VertexID(uint) VertexID)
+{
+    INIT_MAIN;
+
+	// Imagine the height map with a grid of points which we will sample for the geometry
+	uint quadID = VertexID/6;
+	uint vertexInQuad = VertexID%6;
+	
+	uint xNumberOfSamples = uint(scene.TerrainSize.x/scene.SampleGranularity);
+	uint zNumberOfSamples = uint(scene.TerrainSize.y/scene.SampleGranularity);
+	
+	uint xIndex = quadID%xNumberOfSamples;
+	uint zIndex = quadID/xNumberOfSamples;
+	
+	// Get the world position of the current grid point
+	float xPos = float(xIndex)*scene.SampleGranularity;
+	float zPos = float(zIndex)*scene.SampleGranularity;
+	
+	float s = scene.SampleGranularity;
+	
+	// Decide finalPos depending on which vertex in quad we're on.
+	// The map sample point is the bottom-left of the quad
+	float4 finalPos = float4(0, 0, 0, 1);
+	if (vertexInQuad == 0 || vertexInQuad == 3) { 
+		// BL
+		finalPos.x = xPos;
+		finalPos.z = zPos;
+	} else if (vertexInQuad == 1) {
+		// TL
+		finalPos.x = xPos;
+		finalPos.z = zPos + s;
+	} else if (vertexInQuad == 2 || vertexInQuad == 4) {
+		// TR
+		finalPos.x = xPos + s;
+		finalPos.z = zPos + s;
+	} else if (vertexInQuad == 5) {
+		// BR
+		finalPos.x = xPos + s;
+		finalPos.z = zPos;
+	}
+
+	const float mapPartPercent = HEIGHT_MAP_SAMPLE_FOR_HEIGHT_PERCENT;
+	
+	// Sample height
+	float4 heightSample = sampleHeight(finalPos.xyz, mapPartPercent, mapPartPercent);
+	float yFactor = heightSample.r;
+	
+	// #MagicValue
+	finalPos.y = scene.MaxFloorY*yFactor;
+	
+	// We sample around the point to calculate a normal
+	float3 L = float3(finalPos.x - s, 0, finalPos.z    );
+    float3 R = float3(finalPos.x + s, 0, finalPos.z    );
+    float3 B = float3(finalPos.x,     0, finalPos.z - s);
+    float3 T = float3(finalPos.x,     0, finalPos.z + s);
+    
+    L.y = sampleHeight(finalPos + float3(-s, 0,  0), mapPartPercent, mapPartPercent).r * scene.MaxFloorY;
+	R.y = sampleHeight(finalPos + float3( s, 0,  0), mapPartPercent, mapPartPercent).r * scene.MaxFloorY;
+	B.y = sampleHeight(finalPos + float3( 0, 0, -s), mapPartPercent, mapPartPercent).r * scene.MaxFloorY;
+	T.y = sampleHeight(finalPos + float3( 0, 0,  s), mapPartPercent, mapPartPercent).r * scene.MaxFloorY;
+
+    float3 horizontal = R - L;
+    float3 vertical   = T - B;
+
+    float3 normal = normalize(cross(vertical, horizontal));
+
+    VSOutput Out;
+
+    Out.Color = float4(0.05, 0.3, 0.01, 1.0);
+    Out.Position = mul(scene.CameraToClip, finalPos);
+    Out.Normal = normal;
+
+    RETURN(Out);
+}

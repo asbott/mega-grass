@@ -1,0 +1,31 @@
+
+#include "../../terrain_config.h"
+
+// #Volatile this is taken directly from blender, so if model height changes, then this will break.
+// This is for the sake of demonstration.
+#define BASE_GRASS_HEIGHT (1.96848)
+#define BASE_GRASS_LEFT (-0.13)
+#define BASE_GRASS_RIGHT (0.13)
+#define BASE_GRASS_WIDTH (BASE_GRASS_RIGHT-BASE_GRASS_LEFT)
+
+STRUCT(VSOutput)
+{
+    DATA(float4, Position, SV_Position);
+    DATA(float3, ModelPosition, MODELPOSITION); 
+    DATA(float3, Normal, NORMAL); 
+    DATA(float3, RotatedNormal1, NORMAL1); 
+    DATA(float3, RotatedNormal2, NORMAL2); 
+    DATA(float, WidthFactor, GRASS_WIDTH);
+    DATA(float, HeightFactor, HEIGHTFACTOR);
+};
+
+STRUCT(TileEntry) 
+{
+	uint XTile;
+	uint YTile;
+	uint Seed;
+	uint Pad;
+};
+
+
+RES(Buffer(TileEntry), tileData, UPDATE_FREQ_PER_FRAME, t0, binding = 1);

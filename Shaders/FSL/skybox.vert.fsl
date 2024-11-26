@@ -1,0 +1,160 @@
+
+STRUCT(VSOutput)
+{
+    DATA(float4, Position, SV_Position);
+    DATA(uint, QuadID, QUADID);
+    DATA(float2, Uv, UV);
+};
+
+STRUCT(UniformData)
+{
+	DATA(float4x4, View, None);
+	DATA(float4x4, Projection, None); // #Portability multi viewport vr
+};
+
+RES(CBUFFER(UniformData), skyboxData, UPDATE_FREQ_PER_FRAME, b1, binding = 1);
+
+float4x4 createRotationMatrixAxisAngle(float3 axis, float angle) {
+    float cosA = cos(angle);
+    float sinA = sin(angle);
+    float oneMinusCosA = 1.0 - cosA;
+
+    // Components of the axis
+    float x = axis.x;
+    float y = axis.y;
+    float z = axis.z;
+
+    return float4x4(
+        cosA + x * x * oneMinusCosA, x * y * oneMinusCosA - z * sinA, x * z * oneMinusCosA + y * sinA, 0,
+        y * x * oneMinusCosA + z * sinA, cosA + y * y * oneMinusCosA, y * z * oneMinusCosA - x * sinA, 0,
+        z * x * oneMinusCosA - y * sinA, z * y * oneMinusCosA + x * sinA, cosA + z * z * oneMinusCosA, 0,
+        0, 0, 0, 1
+    );
+}
+
+VSOutput VS_MAIN(SV_VertexID(uint) VertexID)
+{
+    INIT_MAIN;
+
+	static float4 positions[6 * 6] = {
+	    // Back (-z)
+	    float4( 1.0f,  1.0f, -1.0f, 1.0f), // TR
+	    float4(-1.0f,  1.0f, -1.0f, 1.0f), // TL
+	    float4(-1.0f, -1.0f, -1.0f, 1.0f), // BL
+	    float4( 1.0f, -1.0f, -1.0f, 1.0f), // BR
+	    float4( 1.0f,  1.0f, -1.0f, 1.0f), // TR
+	    float4(-1.0f, -1.0f, -1.0f, 1.0f), // BL
+	
+	    // Left (-x)
+	    float4(-1.0f,  1.0f,  1.0f, 1.0f), // BL
+	    float4(-1.0f, -1.0f,  1.0f, 1.0f), // TL
+	    float4(-1.0f, -1.0f, -1.0f, 1.0f), // TR
+	    float4(-1.0f,  1.0f,  1.0f, 1.0f), // BL
+	    float4(-1.0f, -1.0f, -1.0f, 1.0f), // TR
+	    float4(-1.0f,  1.0f, -1.0f, 1.0f), // BR
+	
+	    // Front (+z)
+	    float4( 1.0f, -1.0f,  1.0f, 1.0f), // TR
+	    float4(-1.0f, -1.0f,  1.0f, 1.0f), // TL
+	    float4(-1.0f,  1.0f,  1.0f, 1.0f), // BL
+	    float4( 1.0f,  1.0f,  1.0f, 1.0f), // BR
+	    float4( 1.0f, -1.0f,  1.0f, 1.0f), // TR
+	    float4(-1.0f,  1.0f,  1.0f, 1.0f), // BL
+	
+	    // Right (+x)
+	    float4( 1.0f,  1.0f, -1.0f, 1.0f), // BL
+	    float4( 1.0f, -1.0f, -1.0f, 1.0f), // TL
+	    float4( 1.0f, -1.0f,  1.0f, 1.0f), // TR
+	    float4( 1.0f,  1.0f, -1.0f, 1.0f), // BL
+	    float4( 1.0f, -1.0f,  1.0f, 1.0f), // TR
+	    float4( 1.0f,  1.0f,  1.0f, 1.0f), // BR
+	
+	    // Bottom (-y)
+	    float4(-1.0f,  1.0f,  1.0f, 1.0f), // BL
+	    float4(-1.0f,  1.0f, -1.0f, 1.0f), // TL
+	    float4( 1.0f,  1.0f, -1.0f, 1.0f), // TR
+	    float4(-1.0f,  1.0f,  1.0f, 1.0f), // BL
+	    float4( 1.0f,  1.0f, -1.0f, 1.0f), // TR
+	    float4( 1.0f,  1.0f,  1.0f, 1.0f), // BR
+	
+	    // Top (+y)
+	    float4(-1.0f, -1.0f, -1.0f, 1.0f), // BL
+	    float4(-1.0f, -1.0f,  1.0f, 1.0f), // TL
+	    float4( 1.0f, -1.0f,  1.0f, 1.0f), // TR
+	    float4(-1.0f, -1.0f, -1.0f, 1.0f), // BL
+	    float4( 1.0f, -1.0f,  1.0f, 1.0f), // TR
+	    float4( 1.0f, -1.0f, -1.0f, 1.0f), // BR
+	};
+	static float2 uvs[6 * 6] = {
+	    // Back (-z)
+	    float2(1, 1),    // TR
+	    float2(0, 1),    // TL
+	    float2(0, 0),    // BL
+	    float2(1, 0),    // BR
+	    float2(1, 1),    // TR
+	    float2(0, 0),    // BL
+	
+	    // Left (-x)
+	    float2(0, 1),    // BL
+	    float2(0, 0),    // TL
+	    float2(1, 0),    // TR
+	    float2(0, 1),    // BL
+	    float2(1, 0),    // TR
+	    float2(1, 1),    // BR
+	
+	    // Front (+z)
+	    float2(0, 0),    // TR
+	    float2(1, 0),    // TL
+	    float2(1, 1),    // BL
+	    float2(0, 1),    // BR
+	    float2(0, 0),    // TR
+	    float2(1, 1),    // BL
+	
+	    // Right (+x)
+	    float2(0, 1),    // BL
+	    float2(0, 0),    // TL
+	    float2(1, 0),    // TR
+	    float2(0, 1),    // BL
+	    float2(1, 0),    // TR
+	    float2(1, 1),    // BR
+	
+	    // Bottom (-y)
+	    float2(1, 0),    // BL
+	    float2(1, 1),    // TL
+	    float2(0, 1),    // TR
+	    float2(1, 0),    // BL
+	    float2(0, 1),    // TR
+	    float2(0, 0),    // BR
+	
+	    // Top (+y)
+	    float2(1, 0),    // BL
+	    float2(1, 1),    // TL
+	    float2(0, 1),    // TR
+	    float2(1, 0),    // BL
+	    float2(0, 1),    // TR
+	    float2(0, 0),    // BR
+	};
+
+	uint quadID = VertexID/6;
+	
+	float3x3 viewRotation = (float3x3)-skyboxData.View;
+	float4x4 view;
+	view[0] = float4(viewRotation[0], 0);
+	view[1] = float4(viewRotation[1], 0);
+	view[2] = float4(viewRotation[2], 0);
+	view[3] = float4(0, 0, 0, 1);
+	
+	float4x4 camToClip = mul(skyboxData.Projection, view);
+	
+	float4 pos = mul(camToClip, positions[VertexID]);
+	
+	pos.y -= 0.5;
+	
+    VSOutput Out;
+
+    Out.QuadID = quadID;
+    Out.Position = pos;
+    Out.Uv = uvs[VertexID];
+
+    RETURN(Out);
+}

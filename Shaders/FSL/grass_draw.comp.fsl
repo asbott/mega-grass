@@ -1,0 +1,187 @@
+
+#include "shared.h.fsl"
+#include "../../terrain_config.h"
+
+STRUCT(GrassDrawCall) 
+{
+	uint IndexCount;
+    uint InstanceCount;
+    uint StartIndex;
+    uint VertexOffset;
+    uint StartInstance;
+};
+
+STRUCT(LodLevelInfo) 
+{
+	float Threshold;
+	uint IndexCount;
+	
+	float pad1;
+	float pad2;
+};
+STRUCT(LodSettings) {
+	LodLevelInfo Level[NUMBER_OF_GRASS_LOD];
+	float DensityFadeStartPercent;
+	float MinDensityPercent;
+	float LowestDetailDistance;
+};
+STRUCT(GrassDrawUniformData) 
+{
+	float3 ViewPosition;
+	uint PerceivedNumberOfGrass;
+	LodSettings Lod;
+	
+	// Frustum planes, normalized
+	float3 rcp;
+	float3 lcp;
+	float3 tcp;
+	float3 bcp;
+	float3 fcp;
+	float3 ncp;
+	
+	float3 fhp; // forward horizontal plane
+	float3 fvp; // forward vertical plane
+};
+
+RES(RWBuffer(GrassDrawCall), drawBuffer, UPDATE_FREQ_PER_FRAME, u0, binding = 1);
+RES(CBUFFER(GrassDrawUniformData), drawInfo, UPDATE_FREQ_PER_FRAME, b1, binding = 2);
+
+bool IsPointOutsideFrustum(float3 p) {
+	
+	float3 viewToPointDir = normalize(p-drawInfo.ViewPosition);
+
+	float viewDotLeft  = dot(viewToPointDir, drawInfo.lcp);
+	float viewDotTop   = dot(viewToPointDir, drawInfo.tcp);
+	float viewDotRight = dot(viewToPointDir, drawInfo.rcp);
+	float viewDotBot   = dot(viewToPointDir, drawInfo.bcp);
+	float viewDotFar   = dot(viewToPointDir, drawInfo.fcp);
+	float viewDotNear  = dot(viewToPointDir, drawInfo.ncp);
+	
+	if (viewDotLeft < 0.0 || viewDotTop < 0.0 || viewDotRight < 0.0
+	 || viewDotBot < 0.0  || viewDotFar < 0.0 || viewDotNear < 0.0)
+	 	return true;
+	return false;
+}
+
+NUM_THREADS(32, 32, 1)
+void CS_MAIN(SV_GroupThreadID(uint3) inGroupThreadId, SV_DispatchThreadID(uint3) inDispatchThreadId)
+{
+	INIT_MAIN;
+	
+	uint xTile = inDispatchThreadId.x;
+	uint yTile = inDispatchThreadId.y;
+
+	if (xTile >= GRASS_TILE_COUNT_X || yTile >= GRASS_TILE_COUNT_Y) return;
+	
+	uint tileIndex = yTile*GRASS_TILE_COUNT_X+xTile;
+	
+	const float h = GRASS_TILE_DIMENSION/2.0;
+	
+	float3 tileCenter = float3(
+    	(float)xTile*GRASS_TILE_DIMENSION+h,
+    	0,
+    	(float)yTile*GRASS_TILE_DIMENSION+h
+    );
+    tileCenter.y 
+    	= scene.MaxFloorY * sampleHeight(tileCenter, HEIGHT_MAP_SAMPLE_FOR_HEIGHT_PERCENT, HEIGHT_MAP_SAMPLE_FOR_HEIGHT_PERCENT).r;
+    
+    ///
+    // Frustum culling
+    
+    // We make a bounding box where the height encapsulates the highest possible point
+    // for the grass.
+    
+    const float minY = tileCenter.y;
+    const float maxY = tileCenter.y+scene.MaxGrassHeight;
+    // We don't want to cull tiles that may have grass bending into view
+    const float xPad = scene.MaxGrassHeight*((scene.MaxNaturalAngle+scene.MaxWindLeanAngle)/PI);
+    
+    float3 corners[8] = {
+    	float3(tileCenter.x-h-xPad, minY, tileCenter.z-h),
+    	float3(tileCenter.x-h-xPad, maxY, tileCenter.z-h),
+    	float3(tileCenter.x+h+xPad, maxY, tileCenter.z-h),
+    	float3(tileCenter.x+h+xPad, minY, tileCenter.z-h),
+    	float3(tileCenter.x-h-xPad, minY, tileCenter.z+h),
+    	float3(tileCenter.x-h-xPad, maxY, tileCenter.z+h),
+    	float3(tileCenter.x+h+xPad, maxY, tileCenter.z+h),
+    	float3(tileCenter.x+h+xPad, minY, tileCenter.z+h)
+    };
+    
+    // First we need to figure out if the shape goes across the screen vertical OR
+    // screen horizontal center line. This is to deal with the edge case of a shape
+    // having corners stretch outside of the monitor, resulting in all points being
+    // outside but it's just covering a screen axis so it should be visible.
+    bool canCull = true;
+    
+    // This loop will unroll
+    for (int i = 0; i < 8; i += 1) {
+    	float3 viewToPointDir0 = normalize(corners[i]-drawInfo.ViewPosition);
+		float viewDotForwardHorizontal0 = dot(viewToPointDir0, drawInfo.fhp);
+		float viewDotForwardVertical0 = dot(viewToPointDir0, drawInfo.fvp);
+    	for (int j = 0; j < 8; j += 1) {
+	    	if (j == i) continue;
+	    	
+			float3 viewToPointDir1 = normalize(corners[j]-drawInfo.ViewPosition);
+			float viewDotForwardHorizontal1 = dot(viewToPointDir1, drawInfo.fhp);
+			float viewDotForwardVertical1 = dot(viewToPointDir1, drawInfo.fvp);
+			
+			if ((viewDotForwardHorizontal0 >= 0) != (viewDotForwardHorizontal1 >= 0)
+			 || (viewDotForwardVertical0 >= 0) != (viewDotForwardVertical1 >= 0))
+			{
+				canCull = false;
+				break;
+			}
+	    }	
+	    if (!canCull) break;
+    }
+    
+    if (canCull) {
+	    // If all points are outside, it should not be visible.
+	    if (IsPointOutsideFrustum(corners[0]) && IsPointOutsideFrustum(corners[1])
+	     && IsPointOutsideFrustum(corners[2]) && IsPointOutsideFrustum(corners[3])
+	     && IsPointOutsideFrustum(corners[4]) && IsPointOutsideFrustum(corners[5])
+	     && IsPointOutsideFrustum(corners[6]) && IsPointOutsideFrustum(corners[7])) 
+	    {
+	    	drawBuffer[tileIndex].IndexCount = 0;
+			drawBuffer[tileIndex].InstanceCount = 0;
+			drawBuffer[tileIndex].StartIndex = 0;
+			drawBuffer[tileIndex].VertexOffset = 0;
+			drawBuffer[tileIndex].StartInstance = 0;
+	    	return;
+	    }
+    }
+    
+    float tileDistanceFromView = length(drawInfo.ViewPosition-tileCenter);
+    
+    uint lodIndex = 0;
+    // This loop will unroll
+	for (int32_t i = NUMBER_OF_GRASS_LOD - 1; i >= 0; i -= 1)
+	{
+	    if (tileDistanceFromView >= drawInfo.Lod.Level[i].Threshold)
+	    {
+	        lodIndex = i;
+	        break;
+	    }
+	}
+    
+	
+	uint startIndex = 0;
+	// This loop WON'T unroll, potentially slow
+	for (uint32_t i = 0; i < lodIndex; i += 1)
+	{
+	    startIndex += drawInfo.Lod.Level[i].IndexCount;
+	}
+    
+    float distanceFactor = clamp(tileDistanceFromView/drawInfo.Lod.LowestDetailDistance, 0.0f, 1.0f);
+
+	float density = min(lerp(1.0, drawInfo.Lod.MinDensityPercent, (distanceFactor-drawInfo.Lod.DensityFadeStartPercent)/(1.0f-drawInfo.Lod.DensityFadeStartPercent)), 1.0f);
+    
+	uint numberOfGrass = (uint)((drawInfo.PerceivedNumberOfGrass/(GRASS_TILE_COUNT_X*GRASS_TILE_COUNT_Y))*density);
+
+	drawBuffer[tileIndex].IndexCount = drawInfo.Lod.Level[lodIndex].IndexCount;
+	drawBuffer[tileIndex].InstanceCount = numberOfGrass;
+	drawBuffer[tileIndex].StartIndex = startIndex;
+	drawBuffer[tileIndex].VertexOffset = 0;
+	drawBuffer[tileIndex].StartInstance = tileIndex*(MAX_GRASS_CAP/GRASS_TILE_COUNT);
+
+}

@@ -1,0 +1,13 @@
+RD_SHADER_BINARIES = CompiledShaders/
+RD_PIPELINE_CACHE = PipelineCaches/
+RD_TEXTURES = Textures/
+RD_COMPILED_MATERIALS = CompiledMaterials/
+RD_MESHES = Models/
+RD_FONTS = Fonts/
+RD_ANIMATIONS = Animation/
+RD_AUDIO = Audio/
+RD_SCRIPTS = Scripts/
+
+RD_SCREENSHOTS = Screenshots/
+RD_DEBUG = Debug/
+

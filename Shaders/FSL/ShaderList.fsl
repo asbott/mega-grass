@@ -1,0 +1,28 @@
+#frag terrain.frag
+#include "terrain.frag.fsl"
+#end
+
+#vert terrain.vert
+#include "terrain.vert.fsl"
+#end
+
+#frag FT_VDP grass.frag
+#include "grass.frag.fsl"
+#end
+
+#vert FT_VDP grass.vert
+#include "grass.vert.fsl"
+#end
+
+#frag skybox.frag
+#include "skybox.frag.fsl"
+#end
+
+#vert skybox.vert
+#include "skybox.vert.fsl"
+#end
+
+#comp grass_draw.comp
+#include "grass_draw.comp.fsl"
+#end
+

@@ -1,0 +1,10 @@
+date       time     [thread name/id ]                   file:line    v |
+2024-11-13 14:34:46 [MainThread     ]                   Log.c:193   INFO| Opened log file AssetPipeline.log
+2024-11-13 14:34:46 [MainThread     ]       AssetPipeline.cpp:109   INFO| ========== ProcessGLTF ==========
+2024-11-13 14:34:46 [MainThread     ]       AssetPipeline.cpp:1677  INFO| Converting grass.gltf to TF custom binary file
+2024-11-13 14:34:46 [MainThread     ]       AssetPipeline.cpp:1672  INFO| Skipping grass_lod_0.gltf
+2024-11-13 14:34:46 [MainThread     ]       AssetPipeline.cpp:1672  INFO| Skipping grass_lod_1.gltf
+2024-11-13 14:34:46 [MainThread     ]       AssetPipeline.cpp:1672  INFO| Skipping grass_lod_2.gltf
+2024-11-13 14:34:46 [MainThread     ]       AssetPipeline.cpp:1672  INFO| Skipping grass_lod_3.gltf
+2024-11-13 14:34:46 [MainThread     ]       AssetPipeline.cpp:111   INFO| ========== !ProcessGLTF ==========
+2024-11-13 14:34:46 [MainThread     ]                   Log.c:153   INFO| Shutting down log system.

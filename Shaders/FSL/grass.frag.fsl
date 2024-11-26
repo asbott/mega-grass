@@ -1,0 +1,33 @@
+
+#include "grass.h.fsl"
+#include "shared.h.fsl"
+
+float4 PS_MAIN(VSOutput In)
+{
+    INIT_MAIN;
+    
+    if (In.ModelPosition.y < 0.0) discard;
+
+	if (In.ModelPosition.y > BASE_GRASS_HEIGHT) discard;
+    
+    float3 normal = lerp(In.RotatedNormal1, In.RotatedNormal2, In.WidthFactor); // Rounded normals
+    normal = normalize(normal);
+    
+    float ambient = 0.75*scene.DaylightFactor;
+    float sunIntensity = 0.3*scene.DaylightFactor;
+    
+    float lightness = ambient + max(dot(In.Normal, scene.SunDirection)*-1, 0.0)*sunIntensity;
+	float3 color = clamp(lightness, 0, 1)* float3(lerp(scene.GrassBaseColor, scene.GrassTipColor, easeIn(In.HeightFactor)*4.0));
+	
+	float f = clamp(max(lightness, 1) - 1, 0, 10) / 10;
+	float L = clamp(0.3*color.x + 0.6*color.y + 0.1*color.z + f/2, 0, 1);
+	color.x = color.x + f * (L - color.x);
+	color.y = color.y + f * (L - color.y);
+	color.z = color.z + f * (L - color.z);
+	
+    float4 result = float4(color, 1);
+    
+    // #Bug #Hack
+    // This is a workaround for a bug where the sampler is optimized out, causing an assert failure.
+    RETURN(result + SampleTex2D(HeightMap, Sampler, float2(0.5, 0.5))*0.000001);
+}

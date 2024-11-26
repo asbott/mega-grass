@@ -1,0 +1,164 @@
+
+
+#include "grass.h.fsl"
+#include "shared.h.fsl"
+
+STRUCT(VSInputVertex)
+{
+    DATA(float3, Position, POSITION);
+    DATA(uint, Normal, NORMAL); 
+};
+STRUCT(VSInputInstance)
+{
+    DATA(uint, InstanceID, INSTANCEID); 
+};
+STRUCT(VSInput)
+{
+	VSInputVertex Vertex;
+	VSInputInstance Instance;
+};
+
+float hash(uint x)
+{
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = (x >> 16) ^ x;
+    return float(x) / float(0xFFFFFFFF);
+}
+
+float rand(inout uint currentSeed)
+{
+    currentSeed *= 0xDEADBEEF;
+    return hash(currentSeed);
+}
+
+
+
+VSOutput VS_MAIN(VSInput In, SV_InstanceID(uint) InstanceID)
+{
+    INIT_MAIN;
+
+	float3 rawVertexPosition = In.Vertex.Position;
+
+	///////////////////////////////////////////////////////////////////////
+	//      WORK AROUND BECAUSE INSTANCEID ALWAYS STARTS AT ZERO         //
+	///////////////////////////////////////////////////////////////////////
+	/* 	The proper way to do this is to use instance id but for some
+		reason that I could not figure out it starts at zero despite
+		me having set the start instance in the draw command to a non
+		zero value. The tile index buffer just contains the numbers
+		0, 1, 2, 3, 4 etc... Setting the start instance will correctly
+		pick the right starting point inside this buffer. So the effect
+		is a pretend version of the instance id with the exact same behavior
+		except it uses some memory. */
+	uint tileIndex = In.Instance.InstanceID/scene.MaxInstancesPerTile;
+	
+	TileEntry tile = tileData[tileIndex];
+	
+	uint xTile = tile.XTile;
+	uint yTile = tile.YTile;
+	uint seed = tile.Seed*InstanceID;
+	
+	float3 floorPos = float3(0, 0, 0);
+	
+	float4 box = float4(
+		(float)xTile * GRASS_TILE_DIMENSION,
+		(float)yTile * GRASS_TILE_DIMENSION,
+		(float)xTile * GRASS_TILE_DIMENSION + GRASS_TILE_DIMENSION,
+		(float)yTile * GRASS_TILE_DIMENSION + GRASS_TILE_DIMENSION
+	);
+	
+	floorPos.x = box.x + rand(seed)*(box.z-box.x);
+	floorPos.z = box.y + rand(seed)*(box.w-box.y);
+
+	float4 heightSample = sampleHeight(floorPos, HEIGHT_MAP_SAMPLE_FOR_HEIGHT_PERCENT, HEIGHT_MAP_SAMPLE_FOR_HEIGHT_PERCENT);
+	float yFactor = heightSample.r;
+	
+	floorPos.y = scene.MaxFloorY*yFactor;
+	
+	float distanceFactor = clamp(length(scene.CameraPos-floorPos)/1000.0, 0.0, 1.0);
+	const float distanceThickening = 10.0;
+	
+	float thickenFactor = max(distanceFactor-0.1, 0.0)/0.9;
+	
+	float minW = scene.MinGrassWidth-thickenFactor*distanceThickening;
+	float maxW = scene.MaxGrassWidth+thickenFactor*distanceThickening;
+	
+	float grassWidth  = minW+(rand(seed)*(maxW-minW));
+	float grassHeight = scene.MinGrassHeight+(rand(seed)*(scene.MaxGrassHeight-scene.MinGrassHeight));
+	
+	float xScale = grassWidth/BASE_GRASS_WIDTH;
+	float yScale = grassHeight/BASE_GRASS_HEIGHT;
+	
+	float heightFactor = rawVertexPosition.y/(BASE_GRASS_HEIGHT);
+	float widthFactor = (rawVertexPosition.x-BASE_GRASS_LEFT)/(BASE_GRASS_RIGHT-BASE_GRASS_LEFT);
+	
+	float4x4 randomRotation = createRotationMatrixY(rand(seed)*TAU);
+	
+	float randomLean = rand(seed)*scene.MaxNaturalAngle+(sin(scene.Time*rand(seed)*8)*rand(seed)*0.02);
+	float leanAmount = ((randomLean)*heightFactor);
+	float4x4 leanRotation = (float4x4)createRotationMatrixAxisAngle(normalize(float3(rand(seed)*2-1, 0, rand(seed)*2-1)), leanAmount);
+	
+	float3 windDir = normalize(scene.WindDir);
+	
+	uint2 heightMapSize = GetDimensions(HeightMap, 0);
+	
+	float3 samplePos = floorPos+scene.Time*scene.WindSpeed*windDir;
+	
+	float windFactor = sampleHeight(samplePos, 0.25, 0.25).r;
+	float windLean = windFactor*scene.MaxWindLeanAngle;
+	float windAmount = ((windLean)*heightFactor)*scene.WindStrength;
+	float4x4 windRotation = createRotationMatrixAxisAngle(-float3(windDir.z, 0, -windDir.x), windAmount);
+	
+	// Light billboarding for grass to slightly prefer staying visible. 
+	// I think it makes the grass a bit more lush, but it definitely needs some tweaking
+	float4 clipSpacePos = mul(scene.CameraToClip, float4(floorPos, 1.0));
+    float distanceFromCenter = abs(clipSpacePos.x / clipSpacePos.w);
+    float billboardFactor = smoothstep(0.05, 0.4, distanceFromCenter);
+    float4x4 billboardRotation = createRotationMatrixY(scene.ViewDir.x * billboardFactor * 0.5);
+	
+	float4x4 model = float4x4(
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1
+	);
+	
+	model = mul(model, windRotation);
+	model = mul(model, leanRotation);
+	model = mul(model, randomRotation);
+    model = mul(model, billboardRotation);
+	
+	model = mul(model, createScaleMatrix(xScale, yScale));
+	
+	float3 currentVertexPos = mul(model, float4(rawVertexPosition, 1.0)).xyz;
+	
+	currentVertexPos += floorPos;
+	
+	float3 normalUntransformed = decodeDir(unpackUnorm2x16(In.Vertex.Normal));
+    float3 normal = normalize(mul(model, float4(normalUntransformed, 0.0))).xyz;	
+    
+    
+    // Grass straws are non-culled planes, so we need to invert normal when they are facing away
+    float3 dirToCam = normalize(currentVertexPos-scene.CameraPos);
+    float camDotNormal = dot(dirToCam, normal);
+    if (camDotNormal >= 0) {
+    	normal = -normal;
+    }
+
+    VSOutput Out;
+
+    Out.HeightFactor = heightFactor;
+    Out.Position = mul(scene.CameraToClip, float4(currentVertexPos.x, currentVertexPos.y, currentVertexPos.z, 1.0));
+    
+    Out.Normal = normal;
+    
+    Out.RotatedNormal1 = mul(createRotationMatrixY(TAU* 0.16), float4(normal, 1.0)).xyz;
+    Out.RotatedNormal2 = mul(createRotationMatrixY(TAU*-0.16), float4(normal, 1.0)).xyz;
+    
+    Out.ModelPosition = rawVertexPosition;
+    
+    Out.WidthFactor = widthFactor;
+
+    RETURN(Out);
+}

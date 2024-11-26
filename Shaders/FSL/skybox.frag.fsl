@@ -1,0 +1,63 @@
+
+STRUCT(SceneData) {
+	DATA(float4x4, CameraToClip, None); // #Portability this won't work on multi-viewport (VR)
+	DATA(float3, SunDirection, None);
+	DATA(float2, TerrainSize, None);
+	DATA(float, DaylightFactor, None);
+};
+RES(CBUFFER(SceneData), scene, UPDATE_FREQ_PER_FRAME, b0, binding = 0);
+
+STRUCT(VSOutput)
+{
+    DATA(float4, Position, SV_Position);
+    DATA(uint, QuadID, QUADID);
+    DATA(float2, Uv, UV);
+};
+
+RES(SamplerState, Sampler, UPDATE_FREQ_NONE, s0, binding = 1);
+RES(Tex2D(float4), SkyboxBack,   UPDATE_FREQ_NONE, t1, binding = 2);
+RES(Tex2D(float4), SkyboxLeft,   UPDATE_FREQ_NONE, t2, binding = 3);
+RES(Tex2D(float4), SkyboxFront,  UPDATE_FREQ_NONE, t3, binding = 4);
+RES(Tex2D(float4), SkyboxRight,  UPDATE_FREQ_NONE, t4, binding = 5);
+RES(Tex2D(float4), SkyboxBottom, UPDATE_FREQ_NONE, t5, binding = 6);
+RES(Tex2D(float4), SkyboxTop,    UPDATE_FREQ_NONE, t6, binding = 7);
+
+float3 correctColor(float3 color)
+{
+    float3 sRGB;
+
+    // Apply gamma encoding for each channel
+    sRGB.r = (color.r <= 0.0031308) ? (12.92 * color.r) : (1.055 * pow(color.r, 1.0 / 2.4) - 0.055);
+    sRGB.g = (color.g <= 0.0031308) ? (12.92 * color.g) : (1.055 * pow(color.g, 1.0 / 2.4) - 0.055);
+    sRGB.b = (color.b <= 0.0031308) ? (12.92 * color.b) : (1.055 * pow(color.b, 1.0 / 2.4) - 0.055);
+
+    return sRGB;
+}
+float4 PS_MAIN(VSOutput In)
+{
+    INIT_MAIN;
+        
+    float4 color;
+	
+	if (In.QuadID == 0) {
+		color = SampleTex2D(SkyboxBack, Sampler, In.Uv);
+	} else if (In.QuadID == 1) {
+		color = SampleTex2D(SkyboxLeft, Sampler, In.Uv);
+	} else if (In.QuadID == 2) {
+		color = SampleTex2D(SkyboxFront, Sampler, In.Uv);
+	} else if (In.QuadID == 3) {
+		color = SampleTex2D(SkyboxRight, Sampler, In.Uv);
+	} else if (In.QuadID == 4) {
+		color = SampleTex2D(SkyboxBottom, Sampler, In.Uv);
+	} else if (In.QuadID == 5) {
+		color = SampleTex2D(SkyboxTop, Sampler, In.Uv);
+	}
+	
+	// Skybox textures are in wrong color spaces.
+	// I'm not sure whether this is the texture being decoded incorrectly or
+	// me using the wrong color space, so I'm just manually correcting it
+	// for now.
+    color = float4(correctColor(color)*scene.DaylightFactor, color.a);
+    
+    RETURN(color);
+}
