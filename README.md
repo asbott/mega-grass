@@ -1,4 +1,4 @@
 cool grass.
 
 
-![grassvideo](repo/grass1.mp4)
+https://github.com/asbott/mega-grass/raw/refs/heads/master/repo/grass1.mp4
